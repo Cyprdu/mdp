@@ -1,8 +1,10 @@
-const CLIENT_ID = '981549083683-mip1727gmq4jsqkgv7vvqhos8mulr2vf.apps.googleusercontent.com'; 
+const CLIENT_ID = '981549083683-mip1727gmq4jsqkgv7vvqhos8mulr2vf.apps.googleusercontent.com';
 const FILE_ID = '1Y8dvHlVZQCE7pSZu--7qFqZRxL7vNBT4';
 const SCOPES = 'https://www.googleapis.com/auth/drive';
+const CACHE_KEY = 'id_dragon_favories';
 
-let tokenClient, accessToken = null, currentDb = null, fileMetadata = null; 
+let tokenClient, accessToken = null, currentDb = null, fileMetadata = null;
+let entriesData = [];
 
 const DOM = {
     stepAuth: document.getElementById('step-auth'),
@@ -10,6 +12,7 @@ const DOM = {
     stepDashboard: document.getElementById('step-dashboard'),
     btnLogin: document.getElementById('btn-login'),
     btnUnlock: document.getElementById('btn-unlock'),
+    btnForget: document.getElementById('btn-forget'),
     masterPassword: document.getElementById('master-password'),
     passwordsList: document.getElementById('passwords-list'),
     skeletonLoader: document.getElementById('skeleton-loader'),
@@ -19,7 +22,11 @@ const DOM = {
     toast: document.getElementById('toast-container'),
     statusText: document.getElementById('status-text'),
     statusDot: document.getElementById('status-dot'),
-    searchContainer: document.getElementById('search-container')
+    searchContainer: document.getElementById('search-container'),
+    entryModal: document.getElementById('entry-modal'),
+    entryModalHeader: document.getElementById('entry-modal-header'),
+    entryModalFields: document.getElementById('entry-modal-fields'),
+    entryModalClose: document.getElementById('entry-modal-close'),
 };
 
 window.onload = function () {
@@ -42,7 +49,7 @@ DOM.btnLogin.onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' 
 
 // --- ANIMATION CADENAS ---
 DOM.masterPassword.addEventListener('input', (e) => {
-    if(e.target.value.length > 0) {
+    if (e.target.value.length > 0) {
         DOM.lockShackle.setAttribute('d', 'M8 11V7a4 4 0 118 0v4m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z');
         DOM.lockIcon.classList.replace('text-gray-500', 'text-[#10B981]');
     } else {
@@ -59,37 +66,159 @@ async function downloadKdbxFile() {
         if (!response.ok) throw new Error();
         fileMetadata = await response.arrayBuffer();
         updateStatus("Prêt pour déchiffrement", "bg-cyan-500", "text-cyan-400");
+        tryAutoUnlock();
     } catch (e) {
         showError("Impossible d'accéder au conteneur.");
     }
 }
 
-DOM.btnUnlock.onclick = async () => {
-    const password = DOM.masterPassword.value;
+// =====================================================================
+// CACHE LOCAL CHIFFRE DU MOT DE PASSE MAITRE
+//
+// Le mot de passe n'est jamais stocké en clair. Il est chiffré en
+// AES-256-GCM avec une clé dérivée (PBKDF2) d'une longue phrase secrète
+// répartie aléatoirement dans plusieurs attributs data-* du HTML.
+//
+// Important à savoir : comme ce code s'exécute entièrement côté client,
+// cette phrase reste techniquement lisible par quelqu'un qui inspecte
+// le code source de la page (vue source / devtools). Ce mécanisme
+// protège donc contre une lecture "brute" du localStorage (un tiers qui
+// aspire juste la valeur stockée sans le code de la page), mais ce
+// n'est pas une protection absolue contre quelqu'un qui a accès complet
+// au site. Ne considère pas ceci comme un coffre-fort inviolable.
+// =====================================================================
+
+function getEmbeddedKeyMaterial() {
+    const parts = [
+        document.querySelector('h1')?.dataset.sid,
+        document.getElementById('status-badge')?.dataset.rid,
+        document.getElementById('toast-container')?.dataset.cid,
+        document.getElementById('step-dashboard')?.dataset.tid,
+        document.getElementById('btn-unlock')?.dataset.nid,
+    ];
+    if (parts.some(p => !p)) {
+        throw new Error('Clé locale introuvable dans le HTML.');
+    }
+    return parts.join('::');
+}
+
+function bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+}
+
+function b64ToBuf(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+}
+
+async function deriveKey(passphrase, saltBytes) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: saltBytes, iterations: 250000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function cacheMasterPassword(password) {
+    try {
+        const passphrase = getEmbeddedKeyMaterial();
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveKey(passphrase, salt);
+        const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(password));
+        const payload = { s: bufToB64(salt), i: bufToB64(iv), c: bufToB64(ciphertext) };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    } catch (e) {
+        console.warn('Mise en cache locale impossible :', e);
+    }
+}
+
+async function getCachedMasterPassword() {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    try {
+        const payload = JSON.parse(raw);
+        const passphrase = getEmbeddedKeyMaterial();
+        const salt = new Uint8Array(b64ToBuf(payload.s));
+        const iv = new Uint8Array(b64ToBuf(payload.i));
+        const key = await deriveKey(passphrase, salt);
+        const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, b64ToBuf(payload.c));
+        return new TextDecoder().decode(plainBuf);
+    } catch (e) {
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+    }
+}
+
+function clearCachedMasterPassword() {
+    localStorage.removeItem(CACHE_KEY);
+    DOM.btnForget.classList.add('hidden');
+}
+
+function refreshForgetButtonVisibility() {
+    DOM.btnForget.classList.toggle('hidden', !localStorage.getItem(CACHE_KEY));
+}
+
+DOM.btnForget.onclick = () => clearCachedMasterPassword();
+
+async function tryAutoUnlock() {
+    const cachedPwd = await getCachedMasterPassword();
+    if (cachedPwd) {
+        updateStatus("Déchiffrement automatique...", "bg-yellow-500", "text-yellow-400");
+        const ok = await attemptUnlock(cachedPwd, { silent: true });
+        if (ok) return;
+        updateStatus("Prêt pour déchiffrement", "bg-cyan-500", "text-cyan-400");
+    }
+    refreshForgetButtonVisibility();
+}
+
+// --- DECHIFFREMENT DE LA BASE ---
+async function attemptUnlock(password, { silent = false } = {}) {
     document.getElementById('error-msg').classList.add('hidden');
-    
-    const originalText = DOM.btnUnlock.innerText;
-    DOM.btnUnlock.innerHTML = `<svg class="animate-spin h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+
+    let originalText;
+    if (!silent) {
+        originalText = DOM.btnUnlock.innerText;
+        DOM.btnUnlock.innerHTML = `<svg class="animate-spin h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+    }
 
     try {
-        await new Promise(r => setTimeout(r, 400)); 
+        if (!silent) await new Promise(r => setTimeout(r, 400));
         const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
         currentDb = await kdbxweb.Kdbx.load(fileMetadata, credentials);
-        
+
         updateStatus("AES-256 Actif", "bg-[#10B981] dot-pulse", "text-[#10B981]");
-        DOM.masterPassword.value = ''; 
-        
+        DOM.masterPassword.value = '';
+
+        await cacheMasterPassword(password);
+        refreshForgetButtonVisibility();
+
         transitionView(DOM.stepUnlock, DOM.stepDashboard);
         generateSkeletons();
-        
+
         setTimeout(() => {
             DOM.skeletonLoader.classList.add('hidden');
             DOM.passwordsList.classList.remove('hidden');
             DOM.searchContainer.classList.remove('hidden');
             displayEntries();
-        }, 1200); 
+        }, 1200);
 
+        return true;
     } catch (e) {
+        if (silent) {
+            // Mot de passe en cache invalide (fichier changé, cache corrompu...) : on l'oublie et on redemande.
+            clearCachedMasterPassword();
+            return false;
+        }
         DOM.btnUnlock.innerText = originalText;
         showError("Clé cryptographique rejetée.");
         DOM.inputContainer.classList.add('animate-shake');
@@ -98,132 +227,324 @@ DOM.btnUnlock.onclick = async () => {
             DOM.inputContainer.classList.remove('animate-shake');
             DOM.masterPassword.classList.remove('border-red-500', 'focus:ring-red-500');
         }, 400);
+        return false;
     }
-};
+}
 
-// --- KEEPASS PARSING ET DOM ---
-function displayEntries() {
-    DOM.passwordsList.innerHTML = '';
-    const entries = currentDb.getDefaultGroup().entries; 
-    
-    entries.forEach((entry, index) => {
-        const title = entry.fields.get('Title') || 'Sans titre';
-        const username = entry.fields.get('UserName') || '—';
-        const passwordValue = entry.fields.get('Password') ? entry.fields.get('Password').getText() : '';
-        const rawUrl = entry.fields.get('URL') ? entry.fields.get('URL') : '';
-        
-        // --- LOGIQUE DES FAVICONS ---
-        let domain = "";
-        if(rawUrl && rawUrl.includes('.')) {
-            try { domain = new URL(rawUrl).hostname; } catch(e) { domain = rawUrl; }
-        } else {
+DOM.btnUnlock.onclick = () => attemptUnlock(DOM.masterPassword.value, { silent: false });
+
+// --- UTILITAIRES DE SECURITE HTML ---
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
+function extractFieldText(value) {
+    if (!value) return '';
+    if (typeof value.getText === 'function') return value.getText();
+    return String(value);
+}
+
+// --- KEEPASS PARSING (recursif : toutes les entrées, y compris sous-dossiers) ---
+function getAllEntries(db) {
+    const entries = [];
+    function walk(group) {
+        if (!group) return;
+        if (group.entries) entries.push(...group.entries);
+        if (group.groups) group.groups.forEach(walk);
+    }
+    walk(db.getDefaultGroup());
+    return entries;
+}
+
+const KNOWN_FIELDS = new Set(['Title', 'UserName', 'Password', 'URL', 'Notes']);
+
+function parseEntries(db) {
+    const rawEntries = getAllEntries(db);
+    return rawEntries.map((entry, index) => {
+        const fields = entry.fields;
+        const title = extractFieldText(fields.get('Title')) || 'Sans titre';
+        const username = extractFieldText(fields.get('UserName'));
+        const password = extractFieldText(fields.get('Password'));
+        const url = extractFieldText(fields.get('URL'));
+        const notes = extractFieldText(fields.get('Notes'));
+
+        const others = [];
+        fields.forEach((value, key) => {
+            if (!KNOWN_FIELDS.has(key)) {
+                const text = extractFieldText(value);
+                if (text) others.push({ key, value: text });
+            }
+        });
+
+        let domain = '';
+        if (url && url.includes('.')) {
+            try { domain = new URL(url).hostname; } catch (e) { domain = url; }
+        } else if (title) {
             domain = title.toLowerCase().replace(/\s+/g, '') + '.com';
         }
+
+        return { index, title, username, password, url, notes, others, domain };
+    });
+}
+
+function displayEntries() {
+    entriesData = parseEntries(currentDb);
+    DOM.passwordsList.innerHTML = '';
+
+    entriesData.forEach((e) => {
+        const initial = (e.title || '?').charAt(0).toUpperCase();
+        let iconHtml = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${escapeHtml(initial)}</div>`;
         
-        let iconHtml = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${title.charAt(0).toUpperCase()}</div>`;
-        if (domain !== ".com") {
-            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${domain}&sz=64" onerror="this.outerHTML='${iconHtml}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
+        if (e.domain) {
+            // On échappe les guillemets simples ET les guillemets doubles pour éviter de casser l'attribut onerror=""
+            const safeFallback = iconHtml.replace(/'/g, "\\'").replace(/"/g, '&' + 'quot;');
+            
+            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64" onerror="this.outerHTML='${safeFallback}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
         }
 
-        const id = `pwd-${index}`;
-        const safePwd = passwordValue.replace(/"/g, '&quot;').replace(/'/g, "\\'");
-        const safeUsername = username.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+
+        
+
+        const displayUsername = e.username || '—';
+        const id = `pwd-${e.index}`;
 
         const card = document.createElement('div');
         card.className = "spotlight-card rounded-2xl p-5 flex flex-col gap-5 group";
-        
-        card.addEventListener('mousemove', (e) => {
+
+        card.addEventListener('mousemove', (ev) => {
             const rect = card.getBoundingClientRect();
-            card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-            card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+            card.style.setProperty('--mouse-x', `${ev.clientX - rect.left}px`);
+            card.style.setProperty('--mouse-y', `${ev.clientY - rect.top}px`);
         });
 
         card.innerHTML = `
             <div class="flex items-start gap-4 border-b border-white/5 pb-4">
                 ${iconHtml}
                 <div class="overflow-hidden flex-1">
-                    <h3 class="text-sm font-semibold text-gray-100 truncate">${title}</h3>
-                    
+                    <h3 class="text-sm font-semibold text-gray-100 truncate">${escapeHtml(e.title)}</h3>
                     <div class="flex items-center gap-2 mt-1">
-                        <p class="text-xs text-gray-500 font-mono truncate max-w-[150px]">${username}</p>
-                        ${username !== '—' ? `
-                        <button onclick="copyAnim('${safeUsername}', this)" class="text-gray-600 hover:text-[#10B981] transition-colors p-1 rounded hover:bg-white/5" title="Copier l'identifiant">
+                        <p class="text-xs text-gray-500 font-mono truncate max-w-[150px]">${escapeHtml(displayUsername)}</p>
+                        ${e.username ? `
+                        <button type="button" data-copy="username" class="text-gray-600 hover:text-[#10B981] transition-colors p-1 rounded hover:bg-white/5" title="Copier l'identifiant">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                         </button>` : ''}
                     </div>
                 </div>
             </div>
-            
+
             <div class="flex items-center justify-between bg-black/40 rounded-lg p-1.5 border border-white/5 mt-auto">
-                <input type="password" value="${safePwd}" class="bg-transparent border-none outline-none text-sm text-gray-300 font-mono pl-3 w-full pointer-events-none" readonly id="${id}">
-                
+                <input type="password" value="${escapeAttr(e.password)}" class="bg-transparent border-none outline-none text-sm text-gray-300 font-mono pl-3 w-full pointer-events-none" readonly id="${id}">
                 <div class="flex gap-1 flex-shrink-0">
-                    <button onclick="revealMatrix('${id}', '${safePwd}', this)" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors" title="Afficher/Masquer">
+                    <button type="button" data-action="reveal" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors" title="Afficher/Masquer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     </button>
-                    <button onclick="copyAnim('${safePwd}', this)" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors" title="Copier le MDP">
+                    <button type="button" data-action="copy-password" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors" title="Copier le mot de passe">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                     </button>
                 </div>
             </div>
         `;
+
+        const usernameCopyBtn = card.querySelector('[data-copy="username"]');
+        if (usernameCopyBtn) usernameCopyBtn.addEventListener('click', (ev) => { ev.stopPropagation(); copyAnim(e.username, usernameCopyBtn); });
+
+        const revealBtn = card.querySelector('[data-action="reveal"]');
+        revealBtn.addEventListener('click', (ev) => { ev.stopPropagation(); revealMatrix(id, e.password, revealBtn); });
+
+        const passwordCopyBtn = card.querySelector('[data-action="copy-password"]');
+        passwordCopyBtn.addEventListener('click', (ev) => { ev.stopPropagation(); copyAnim(e.password, passwordCopyBtn); });
+
+        card.addEventListener('click', () => openEntryModal(e.index));
+
         DOM.passwordsList.appendChild(card);
     });
 }
 
 // --- EFFET MATRIX ---
-window.revealMatrix = (inputId, realText, btn) => {
+function revealMatrix(inputId, realText, btn) {
     const input = document.getElementById(inputId);
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*";
-    
+
     if (input.type === "password") {
         input.type = "text";
         btn.classList.add("text-cyan-400");
-        
+
         let iterations = 0;
         const interval = setInterval(() => {
-            input.value = input.value.split("").map((letter, index) => {
-                if(index < iterations) return realText[index];
+            input.value = realText.split("").map((letter, index) => {
+                if (index < iterations) return realText[index];
                 return chars[Math.floor(Math.random() * chars.length)];
             }).join("");
-            
-            if(iterations >= realText.length) clearInterval(interval);
-            iterations += 1/2; 
+
+            if (iterations >= realText.length) clearInterval(interval);
+            iterations += 1 / 2;
         }, 30);
     } else {
         input.type = "password";
         input.value = realText;
         btn.classList.remove("text-cyan-400");
     }
-};
+}
 
 // --- ANIMATION COPIE & TOAST ---
-window.copyAnim = (text, btnElement) => {
+function copyAnim(text, btnElement) {
+    if (!text) return;
     navigator.clipboard.writeText(text).then(() => {
         const svgIcon = btnElement.querySelector('svg');
         const originalHTML = svgIcon.innerHTML;
-        
+
         svgIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" class="text-[#10B981]" d="M5 13l4 4L19 7"/>`;
         DOM.toast.classList.remove('opacity-0', '-translate-y-10');
-        
+
         setTimeout(() => { DOM.toast.classList.add('opacity-0', '-translate-y-10'); }, 2500);
         setTimeout(() => { navigator.clipboard.writeText(""); }, 15000);
         setTimeout(() => { svgIcon.innerHTML = originalHTML; }, 2000);
     });
-};
+}
+
+// --- MODALE DE DETAIL D'ENTREE ---
+function openEntryModal(idx) {
+    const e = entriesData.find(x => x.index === idx);
+    if (!e) return;
+
+    DOM.entryModalHeader.innerHTML = '';
+    DOM.entryModalFields.innerHTML = '';
+
+    const initial = (e.title || '?').charAt(0).toUpperCase();
+    const fallbackIcon = () => {
+        const div = document.createElement('div');
+        div.className = 'w-12 h-12 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-300 font-mono text-base flex-shrink-0';
+        div.textContent = initial;
+        return div;
+    };
+
+    if (e.domain) {
+        const img = document.createElement('img');
+        img.src = `https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64`;
+        img.className = 'w-12 h-12 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0';
+        img.onerror = () => img.replaceWith(fallbackIcon());
+        DOM.entryModalHeader.appendChild(img);
+    } else {
+        DOM.entryModalHeader.appendChild(fallbackIcon());
+    }
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'text-lg font-semibold text-white truncate';
+    titleEl.textContent = e.title;
+    DOM.entryModalHeader.appendChild(titleEl);
+
+    const rows = [];
+    if (e.username) rows.push({ label: 'Identifiant', value: e.username, copy: true });
+    if (e.password) rows.push({ label: 'Mot de passe', value: e.password, copy: true, secret: true });
+    if (e.url) rows.push({ label: 'URL', value: e.url, link: true, copy: true });
+    if (e.notes) rows.push({ label: 'Notes / Commentaire', value: e.notes, copy: true });
+    e.others.forEach(o => rows.push({ label: o.key, value: o.value, copy: true }));
+
+    if (rows.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm text-gray-500 font-mono';
+        empty.textContent = 'Aucune information supplémentaire pour cette entrée.';
+        DOM.entryModalFields.appendChild(empty);
+    }
+
+    rows.forEach(r => {
+        const row = document.createElement('div');
+        row.className = 'detail-row flex items-start justify-between gap-3';
+
+        const left = document.createElement('div');
+        left.className = 'flex-1 min-w-0';
+
+        const label = document.createElement('div');
+        label.className = 'detail-label';
+        label.textContent = r.label;
+        left.appendChild(label);
+
+        const valueEl = document.createElement('div');
+        valueEl.className = 'detail-value';
+
+        let revealed = !r.secret;
+        const renderValue = () => {
+            valueEl.innerHTML = '';
+            if (r.secret && !revealed) {
+                valueEl.textContent = '•'.repeat(Math.min(Math.max(r.value.length, 8), 24));
+            } else if (r.link) {
+                const a = document.createElement('a');
+                a.href = r.value;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.className = 'text-cyan-400 hover:underline break-all';
+                a.textContent = r.value;
+                valueEl.appendChild(a);
+            } else {
+                valueEl.textContent = r.value;
+            }
+        };
+        renderValue();
+        left.appendChild(valueEl);
+        row.appendChild(left);
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'flex gap-1 flex-shrink-0 pt-1';
+
+        if (r.secret) {
+            const revealBtn = document.createElement('button');
+            revealBtn.type = 'button';
+            revealBtn.className = 'text-gray-500 hover:text-cyan-400 p-1.5 rounded transition-colors';
+            revealBtn.title = 'Afficher/Masquer';
+            revealBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
+            revealBtn.addEventListener('click', () => {
+                revealed = !revealed;
+                revealBtn.classList.toggle('text-cyan-400', revealed);
+                renderValue();
+            });
+            btnGroup.appendChild(revealBtn);
+        }
+
+        if (r.copy) {
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'text-gray-500 hover:text-[#10B981] p-1.5 rounded transition-colors';
+            copyBtn.title = 'Copier';
+            copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`;
+            copyBtn.addEventListener('click', () => copyAnim(r.value, copyBtn));
+            btnGroup.appendChild(copyBtn);
+        }
+
+        row.appendChild(btnGroup);
+        DOM.entryModalFields.appendChild(row);
+    });
+
+    DOM.entryModal.classList.remove('hidden');
+}
+
+function closeEntryModal() {
+    DOM.entryModal.classList.add('hidden');
+}
+
+DOM.entryModalClose.addEventListener('click', closeEntryModal);
+DOM.entryModal.addEventListener('click', (e) => {
+    if (e.target === DOM.entryModal) closeEntryModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !DOM.entryModal.classList.contains('hidden')) closeEntryModal();
+});
 
 // --- BARRE DE RECHERCHE ---
 document.getElementById('search-input').addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase();
     const cards = document.querySelectorAll('.spotlight-card');
-    
+
     cards.forEach(card => {
         const textContent = card.innerText.toLowerCase();
-        if(textContent.includes(term)) {
-            card.style.display = 'flex';
-        } else {
-            card.style.display = 'none';
-        }
+        card.style.display = textContent.includes(term) ? 'flex' : 'none';
     });
 });
 
@@ -232,19 +553,22 @@ function transitionView(outView, inView) {
     outView.classList.add('view-exit');
     setTimeout(() => {
         outView.classList.add('hidden');
+        outView.classList.remove('view-exit');
         inView.classList.remove('hidden');
         inView.classList.add('view-enter-start');
-        
-        void inView.offsetWidth; 
-        
+
+        void inView.offsetWidth;
+
         inView.classList.remove('view-enter-start');
         inView.classList.add('view-enter-end');
-    }, 400); 
+    }, 400);
 }
 
 function generateSkeletons() {
+    DOM.skeletonLoader.classList.remove('hidden');
+    DOM.passwordsList.classList.add('hidden');
     DOM.skeletonLoader.innerHTML = '';
-    for(let i=0; i<6; i++) {
+    for (let i = 0; i < 6; i++) {
         DOM.skeletonLoader.innerHTML += `
             <div class="rounded-2xl p-5 border border-white/5 bg-gray-900/40">
                 <div class="animate-pulse flex space-x-4">
