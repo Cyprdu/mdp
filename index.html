@@ -41,17 +41,15 @@
         </button>
     </div>
 
-    <!-- ETAPE 2 : Le Déchiffrement (La Porte du Coffre) -->
+    <!-- ETAPE 2 : Le Déchiffrement -->
     <div id="step-unlock" class="hidden w-full max-w-md view-transition">
         <div class="bg-[#111827]/80 backdrop-blur-xl rounded-2xl p-8 border border-white/5 shadow-2xl space-y-8">
             <div class="text-center space-y-2">
-                <!-- Cadenas dynamique -->
                 <svg id="lock-icon" class="w-10 h-10 mx-auto text-gray-500 transition-colors duration-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path id="lock-shackle" stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
                 <h3 class="text-xl font-medium text-white tracking-wide">Conteneur Verrouillé</h3>
             </div>
 
             <div id="input-container" class="relative group">
-                <!-- L'input qui brille en vert au focus -->
                 <input type="password" id="master-password" placeholder="Clé de déchiffrement..." class="w-full bg-[#0B0F19] border border-gray-700/50 rounded-xl px-5 py-4 text-white font-mono text-lg placeholder-gray-600 focus:outline-none focus:border-[#10B981] focus:ring-1 focus:ring-[#10B981]/50 focus:shadow-[0_0_15px_rgba(16,185,129,0.2)] transition-all duration-300">
             </div>
 
@@ -59,7 +57,7 @@
                 Déchiffrer la base
             </button>
 
-            <!-- Avertissement élégant -->
+            <!-- Avertissement -->
             <div id="error-msg" class="hidden flex items-start gap-3 bg-red-500/10 border border-red-500/20 p-4 rounded-xl">
                 <svg class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                 <p class="text-sm font-medium text-red-300 tracking-wide" id="error-text">Erreur de déchiffrement.</p>
@@ -68,7 +66,14 @@
     </div>
 
     <!-- ETAPE 3 : Le Tableau de Bord -->
-    <div id="step-dashboard" class="hidden w-full max-w-5xl space-y-8 view-transition mt-20">
+    <div id="step-dashboard" class="hidden w-full max-w-6xl space-y-8 view-transition mt-24">
+        
+        <!-- Barre de recherche -->
+        <div id="search-container" class="hidden relative max-w-xl mx-auto group mb-10">
+            <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-[#10B981] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" id="search-input" placeholder="Rechercher une entrée, un identifiant..." class="w-full bg-[#111827]/80 backdrop-blur-xl border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:border-[#10B981]/80 focus:ring-1 focus:ring-[#10B981]/50 transition-all shadow-2xl">
+        </div>
+
         <!-- Skeleton Loading -->
         <div id="skeleton-loader" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <!-- Rempli par le JS -->
