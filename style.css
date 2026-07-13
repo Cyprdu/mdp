@@ -10,7 +10,7 @@ body {
 /* Arrière-plan Tech : Maillage très discret */
 .bg-tech-grid {
     background-size: 40px 40px;
-    background-image: 
+    background-image:
         linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
@@ -27,6 +27,7 @@ body {
     background: rgba(17, 24, 39, 0.6);
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.05);
+    cursor: pointer;
 }
 
 .spotlight-card::before {
@@ -83,3 +84,38 @@ body {
 #toast-container {
     transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
 }
+
+/* Modale de détail d'entrée */
+#entry-modal {
+    transition: opacity 0.3s ease;
+}
+#entry-modal.hidden {
+    display: none;
+}
+
+.detail-row {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+}
+
+.detail-row .detail-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 0.25rem;
+}
+
+.detail-row .detail-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #e5e7eb;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+/* Scrollbar discrète pour la modale */
+#entry-modal-fields::-webkit-scrollbar { width: 6px; }
+#entry-modal-fields::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
