@@ -1,86 +1,88 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureVault | AES-256</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="text-gray-200 min-h-screen flex flex-col items-center justify-center p-4 bg-tech-grid overflow-x-hidden selection:bg-emerald-500/30">
 
-body {
-    font-family: 'Inter', sans-serif;
-    background-color: #0B0F19; /* Bleu abyssal profond */
-}
+    <!-- Notification Toast Flottante -->
+    <div id="toast-container" class="fixed top-8 left-1/2 transform -translate-x-1/2 -translate-y-10 opacity-0 bg-emerald-900/80 border border-emerald-500/50 text-emerald-100 px-6 py-2 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.3)] backdrop-blur-md z-50 pointer-events-none flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+        <span class="text-sm font-medium tracking-wide">Copié dans le presse-papier</span>
+    </div>
 
-/* Typographie stricte pour les données sensibles */
-.font-mono { font-family: 'JetBrains Mono', monospace; }
+    <!-- HEADER / STATUT -->
+    <div class="fixed top-0 w-full p-6 flex justify-between items-center z-40 max-w-6xl mx-auto">
+        <h1 class="text-xl font-semibold tracking-wider flex items-center gap-3 text-white">
+            <svg class="w-6 h-6 text-[#10B981]" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8m-4 4h8M4 10h16v11H4z"/></svg>
+            SECUREVAULT
+        </h1>
+        <div id="status-badge" class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[#111827]/80 backdrop-blur-sm border border-white/5 shadow-lg transition-all duration-500">
+            <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></div>
+            <span id="status-text" class="text-xs font-mono tracking-widest text-gray-400 uppercase">Déconnecté</span>
+        </div>
+    </div>
 
-/* Arrière-plan Tech : Maillage très discret */
-.bg-tech-grid {
-    background-size: 40px 40px;
-    background-image: 
-        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-}
+    <!-- ETAPE 1 : Le Sas d'Entrée -->
+    <div id="step-auth" class="w-full max-w-md text-center space-y-10 view-transition">
+        <div class="space-y-4">
+            <svg class="w-16 h-16 mx-auto text-gray-600" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            <h2 class="text-3xl font-medium tracking-tight text-white">Authentification Cloud</h2>
+            <p class="text-sm text-gray-500 leading-relaxed font-mono">Connexion requise au réseau Google Drive pour récupérer le conteneur chiffré.</p>
+        </div>
+        
+        <button id="btn-login" class="group relative bg-[#111827] hover:bg-[#1f2937] border border-white/10 text-white font-medium py-4 px-8 rounded-xl transition-all duration-300 shadow-2xl flex items-center gap-4 mx-auto hover:-translate-y-1">
+            <svg class="w-6 h-6 transition-transform duration-300 group-hover:-translate-y-1" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            <span class="tracking-wide">Établir la connexion</span>
+        </button>
+    </div>
 
-/* Physique des animations (Ressort / Spring) */
-.spring-transition {
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
+    <!-- ETAPE 2 : Le Déchiffrement (La Porte du Coffre) -->
+    <div id="step-unlock" class="hidden w-full max-w-md view-transition">
+        <div class="bg-[#111827]/80 backdrop-blur-xl rounded-2xl p-8 border border-white/5 shadow-2xl space-y-8">
+            <div class="text-center space-y-2">
+                <!-- Cadenas dynamique -->
+                <svg id="lock-icon" class="w-10 h-10 mx-auto text-gray-500 transition-colors duration-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path id="lock-shackle" stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+                <h3 class="text-xl font-medium text-white tracking-wide">Conteneur Verrouillé</h3>
+            </div>
 
-/* Effet Spotlight piloté par le JavaScript */
-.spotlight-card {
-    position: relative;
-    overflow: hidden;
-    background: rgba(17, 24, 39, 0.6);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
+            <div id="input-container" class="relative group">
+                <!-- L'input qui brille en vert au focus -->
+                <input type="password" id="master-password" placeholder="Clé de déchiffrement..." class="w-full bg-[#0B0F19] border border-gray-700/50 rounded-xl px-5 py-4 text-white font-mono text-lg placeholder-gray-600 focus:outline-none focus:border-[#10B981] focus:ring-1 focus:ring-[#10B981]/50 focus:shadow-[0_0_15px_rgba(16,185,129,0.2)] transition-all duration-300">
+            </div>
 
-.spotlight-card::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.08), transparent 40%);
-    opacity: 0;
-    transition: opacity 0.5s ease;
-    pointer-events: none;
-    z-index: 0;
-}
+            <button id="btn-unlock" class="w-full bg-cyan-600/90 hover:bg-cyan-500 text-white font-medium tracking-wide py-4 rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.2)] hover:shadow-[0_0_25px_rgba(8,145,178,0.4)] flex justify-center items-center h-14">
+                Déchiffrer la base
+            </button>
 
-.spotlight-card:hover::before { opacity: 1; }
-.spotlight-card > * { position: relative; z-index: 1; } /* Garder le contenu au-dessus du halo */
+            <!-- Avertissement élégant -->
+            <div id="error-msg" class="hidden flex items-start gap-3 bg-red-500/10 border border-red-500/20 p-4 rounded-xl">
+                <svg class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <p class="text-sm font-medium text-red-300 tracking-wide" id="error-text">Erreur de déchiffrement.</p>
+            </div>
+        </div>
+    </div>
 
-/* Séquence de Déverrouillage (Cinématique) */
-.view-transition {
-    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease;
-}
-.view-exit {
-    transform: scale(0.95);
-    opacity: 0;
-    pointer-events: none;
-}
-.view-enter-start {
-    transform: scale(1.05);
-    opacity: 0;
-}
-.view-enter-end {
-    transform: scale(1);
-    opacity: 1;
-}
+    <!-- ETAPE 3 : Le Tableau de Bord -->
+    <div id="step-dashboard" class="hidden w-full max-w-5xl space-y-8 view-transition mt-20">
+        <!-- Skeleton Loading -->
+        <div id="skeleton-loader" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Rempli par le JS -->
+        </div>
 
-/* Tremblement pour l'erreur */
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20%, 60% { transform: translateX(-6px); }
-    40%, 80% { transform: translateX(6px); }
-}
-.animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        <!-- Vraies données -->
+        <div id="passwords-list" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Rempli par le JS -->
+        </div>
+    </div>
 
-/* Pulsation du point vert de sécurité */
-@keyframes pulse-green {
-    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-.dot-pulse {
-    animation: pulse-green 2s infinite;
-}
-
-/* Toast de notification */
-#toast-container {
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
-}
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    <script src="https://unpkg.com/kdbxweb/dist/kdbxweb.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
