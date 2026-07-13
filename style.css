@@ -2,10 +2,9 @@
 
 body {
     font-family: 'Inter', sans-serif;
-    background-color: #0B0F19; /* Bleu abyssal profond */
+    background-color: #0B0F19;
 }
 
-/* Typographie stricte pour les données sensibles */
 .font-mono { font-family: 'JetBrains Mono', monospace; }
 
 /* Arrière-plan Tech : Maillage très discret */
@@ -42,7 +41,7 @@ body {
 }
 
 .spotlight-card:hover::before { opacity: 1; }
-.spotlight-card > * { position: relative; z-index: 1; } /* Garder le contenu au-dessus du halo */
+.spotlight-card > * { position: relative; z-index: 1; }
 
 /* Séquence de Déverrouillage (Cinématique) */
 .view-transition {
