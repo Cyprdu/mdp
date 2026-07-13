@@ -302,9 +302,16 @@ function displayEntries() {
     entriesData.forEach((e) => {
         const initial = (e.title || '?').charAt(0).toUpperCase();
         let iconHtml = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${escapeHtml(initial)}</div>`;
+        
         if (e.domain) {
-            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64" onerror="this.outerHTML='${iconHtml.replace(/'/g, "\\'")}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
+            // On échappe les guillemets simples ET les guillemets doubles pour éviter de casser l'attribut onerror=""
+            const safeFallback = iconHtml.replace(/'/g, "\\'").replace(/"/g, '"');
+            
+            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64" onerror="this.outerHTML='${safeFallback}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
         }
+
+
+        
 
         const displayUsername = e.username || '—';
         const id = `pwd-${e.index}`;
