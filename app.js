@@ -4,8 +4,7 @@ const CLIENT_ID = '981549083683-mip1727gmq4jsqkgv7vvqhos8mulr2vf.apps.googleuser
 // Votre fichier
 const FILE_ID = '1Y8dvHlVZQCE7pSZu--7qFqZRxL7vNBT4';
 // Le fameux scope ! C'est ici qu'on demande la permission dans le code.
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-
+const SCOPES = 'https://www.googleapis.com/auth/drive';
 let tokenClient;
 let accessToken = null;
 let currentDb = null; // Stockera la base KeePass déchiffrée
