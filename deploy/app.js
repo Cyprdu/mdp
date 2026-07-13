@@ -305,7 +305,7 @@ function displayEntries() {
         
         if (e.domain) {
             // On échappe les guillemets simples ET les guillemets doubles pour éviter de casser l'attribut onerror=""
-            const safeFallback = iconHtml.replace(/'/g, "\\'").replace(/"/g, '"');
+            const safeFallback = iconHtml.replace(/'/g, "\\'").replace(/"/g, '&' + 'quot;');
             
             iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64" onerror="this.outerHTML='${safeFallback}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
         }
