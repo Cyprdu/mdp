@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -9,8 +8,6 @@
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="favico.svg">
     <link rel="apple-touch-icon" href="favico.ico">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0B0F19">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,35 +15,21 @@
 </head>
 <body class="text-gray-200 min-h-screen flex flex-col items-center justify-center p-4 bg-tech-grid overflow-x-hidden selection:bg-emerald-500/30">
 
-    <!--
-        PASSPHRASE LOCALE DE CHIFFREMENT DU CACHE
-        Cette chaîne est unique à cette instance du site.
-        Elle sert de "sel" secret combiné au device pour dériver la clé AES
-        qui chiffre le mot de passe maître stocké en localStorage.
-        Changez cette valeur si vous redéployez le site pour invalider les caches existants.
-    -->
-    <meta id="vault-pepper" data-p="Kx9!vQ2$mRz7@pL0#wT4^bN8&hY1*sD5%gF3-jC6+aE9=uH2~oK7?rM4;xV0!qW">
-
     <!-- Notification Toast Flottante -->
-    <div id="toast-container" class="fixed top-8 left-1/2 transform -translate-x-1/2 -translate-y-10 opacity-0 bg-emerald-900/80 border border-emerald-500/50 text-emerald-100 px-6 py-2 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.3)] backdrop-blur-md z-50 pointer-events-none flex items-center gap-2">
+    <div id="toast-container" data-cid="8k62UxSSeP3chZtAouRyCC7OtnES" class="fixed top-8 left-1/2 transform -translate-x-1/2 -translate-y-10 opacity-0 bg-emerald-900/80 border border-emerald-500/50 text-emerald-100 px-6 py-2 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.3)] backdrop-blur-md z-50 pointer-events-none flex items-center gap-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
-        <span class="text-sm font-medium tracking-wide">Copié dans le presse-papier</span>
+        <span class="text-sm font-medium tracking-wide" id="toast-text">Copié dans le presse-papier</span>
     </div>
 
     <!-- HEADER / STATUT -->
     <div class="fixed top-0 w-full p-6 flex justify-between items-center z-40 max-w-6xl mx-auto">
-        <h1 class="text-xl font-semibold tracking-wider flex items-center gap-3 text-white">
-            <img src="favico.svg" alt="logo" class="w-6 h-6">
+        <h1 data-sid="CWVD5sRVhUqkKJIC9Spoc1ePhv9k" class="text-xl font-semibold tracking-wider flex items-center gap-3 text-white">
+            <svg class="w-6 h-6 text-[#10B981]" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8m-4 4h8M4 10h16v11H4z"/></svg>
             SECUREVAULT
         </h1>
-        <div class="flex items-center gap-3">
-            <button id="btn-lock-cache" title="Oublier le mot de passe en cache" class="hidden p-2 rounded-lg bg-[#111827]/80 backdrop-blur-sm border border-white/5 shadow-lg text-gray-400 hover:text-red-400 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 10-8 0v2"/></svg>
-            </button>
-            <div id="status-badge" class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[#111827]/80 backdrop-blur-sm border border-white/5 shadow-lg transition-all duration-500">
-                <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></div>
-                <span id="status-text" class="text-xs font-mono tracking-widest text-gray-400 uppercase">Déconnecté</span>
-            </div>
+        <div id="status-badge" data-rid="EQWmmJ9BpwQbnv2xXmRxpTCVwR9w" class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[#111827]/80 backdrop-blur-sm border border-white/5 shadow-lg transition-all duration-500">
+            <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></div>
+            <span id="status-text" class="text-xs font-mono tracking-widest text-gray-400 uppercase">Déconnecté</span>
         </div>
     </div>
 
@@ -70,20 +53,18 @@
             <div class="text-center space-y-2">
                 <svg id="lock-icon" class="w-10 h-10 mx-auto text-gray-500 transition-colors duration-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path id="lock-shackle" stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
                 <h3 class="text-xl font-medium text-white tracking-wide">Conteneur Verrouillé</h3>
-                <p id="cache-hint" class="hidden text-xs text-emerald-400 font-mono tracking-wide">🔓 Clé locale détectée — déverrouillage automatique...</p>
             </div>
 
             <div id="input-container" class="relative group">
                 <input type="password" id="master-password" placeholder="Clé de déchiffrement..." class="w-full bg-[#0B0F19] border border-gray-700/50 rounded-xl px-5 py-4 text-white font-mono text-lg placeholder-gray-600 focus:outline-none focus:border-[#10B981] focus:ring-1 focus:ring-[#10B981]/50 focus:shadow-[0_0_15px_rgba(16,185,129,0.2)] transition-all duration-300">
             </div>
 
-            <label class="flex items-center gap-2 text-xs text-gray-500 font-mono cursor-pointer select-none">
-                <input type="checkbox" id="remember-me" checked class="accent-emerald-500 w-4 h-4 rounded">
-                Se souvenir de moi sur cet appareil (chiffré)
-            </label>
-
-            <button id="btn-unlock" class="w-full bg-cyan-600/90 hover:bg-cyan-500 text-white font-medium tracking-wide py-4 rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.2)] hover:shadow-[0_0_25px_rgba(8,145,178,0.4)] flex justify-center items-center h-14">
+            <button id="btn-unlock" data-nid="A8W2TAX02FAZiBCMNXiRNsBUqKlt" class="w-full bg-cyan-600/90 hover:bg-cyan-500 text-white font-medium tracking-wide py-4 rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(8,145,178,0.2)] hover:shadow-[0_0_25px_rgba(8,145,178,0.4)] flex justify-center items-center h-14">
                 Déchiffrer la base
+            </button>
+
+            <button id="btn-forget" class="hidden w-full text-center text-xs text-gray-500 hover:text-gray-300 font-mono tracking-wide transition-colors">
+                Oublier le mot de passe enregistré sur cet appareil
             </button>
 
             <!-- Avertissement -->
@@ -95,7 +76,7 @@
     </div>
 
     <!-- ETAPE 3 : Le Tableau de Bord -->
-    <div id="step-dashboard" class="hidden w-full max-w-6xl space-y-8 view-transition mt-24">
+    <div id="step-dashboard" data-tid="7BtLUqsUSQIs2wQ0mxiGWjEjOaXt" class="hidden w-full max-w-6xl space-y-8 view-transition mt-24">
 
         <!-- Barre de recherche -->
         <div id="search-container" class="hidden relative max-w-xl mx-auto group mb-10">
@@ -114,20 +95,20 @@
         </div>
     </div>
 
-    <!-- MODALE DE DÉTAILS -->
-    <div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div id="detail-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-        <div id="detail-panel" class="relative bg-[#111827] border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6 space-y-5 view-enter-start">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div id="detail-icon"></div>
-                    <h3 id="detail-title" class="text-lg font-semibold text-white tracking-wide"></h3>
-                </div>
-                <button id="detail-close" class="text-gray-500 hover:text-white p-2 rounded-lg transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
+    <!-- MODALE DETAIL D'ENTREE -->
+    <div id="entry-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        <div id="entry-modal-panel" class="w-full max-w-lg bg-[#111827] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-5 relative view-transition">
+            <button id="entry-modal-close" class="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors" aria-label="Fermer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+
+            <div class="flex items-center gap-4 border-b border-white/5 pb-4" id="entry-modal-header">
+                <!-- rempli par JS -->
             </div>
-            <div id="detail-fields" class="space-y-4 font-mono text-sm"></div>
+
+            <div id="entry-modal-fields" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                <!-- rempli par JS -->
+            </div>
         </div>
     </div>
 
