@@ -1,13 +1,10 @@
-// app.js
 const CLIENT_ID = '981549083683-mip1727gmq4jsqkgv7vvqhos8mulr2vf.apps.googleusercontent.com';
 const FILE_ID = '1Y8dvHlVZQCE7pSZu--7qFqZRxL7vNBT4';
 const SCOPES = 'https://www.googleapis.com/auth/drive';
-
 const CACHE_KEY = 'id_dragon_favories';
-const PEPPER = document.getElementById('vault-pepper').dataset.p;
 
 let tokenClient, accessToken = null, currentDb = null, fileMetadata = null;
-let autoUnlockAttempted = false;
+let entriesData = [];
 
 const DOM = {
     stepAuth: document.getElementById('step-auth'),
@@ -15,10 +12,8 @@ const DOM = {
     stepDashboard: document.getElementById('step-dashboard'),
     btnLogin: document.getElementById('btn-login'),
     btnUnlock: document.getElementById('btn-unlock'),
-    btnLockCache: document.getElementById('btn-lock-cache'),
+    btnForget: document.getElementById('btn-forget'),
     masterPassword: document.getElementById('master-password'),
-    rememberMe: document.getElementById('remember-me'),
-    cacheHint: document.getElementById('cache-hint'),
     passwordsList: document.getElementById('passwords-list'),
     skeletonLoader: document.getElementById('skeleton-loader'),
     lockIcon: document.getElementById('lock-icon'),
@@ -28,110 +23,11 @@ const DOM = {
     statusText: document.getElementById('status-text'),
     statusDot: document.getElementById('status-dot'),
     searchContainer: document.getElementById('search-container'),
-    detailModal: document.getElementById('detail-modal'),
-    detailBackdrop: document.getElementById('detail-backdrop'),
-    detailPanel: document.getElementById('detail-panel'),
-    detailClose: document.getElementById('detail-close'),
-    detailIcon: document.getElementById('detail-icon'),
-    detailTitle: document.getElementById('detail-title'),
-    detailFields: document.getElementById('detail-fields')
+    entryModal: document.getElementById('entry-modal'),
+    entryModalHeader: document.getElementById('entry-modal-header'),
+    entryModalFields: document.getElementById('entry-modal-fields'),
+    entryModalClose: document.getElementById('entry-modal-close'),
 };
-
-/* =========================================================
-   CHIFFREMENT LOCAL DU MOT DE PASSE MAÎTRE (Web Crypto API)
-   La clé de dérivation combine :
-   - Le "pepper" secret injecté dans le HTML (non trivialement lisible/partagé)
-   - Un identifiant lié à ce navigateur/appareil (device fingerprint léger)
-   Le résultat est stocké chiffré (AES-GCM) sous localStorage["id_dragon_favories"].
-   Même si quelqu'un exfiltre le localStorage, il lui faudra aussi connaître/
-   récupérer le pepper embarqué dans CE site précis pour déchiffrer.
-========================================================= */
-
-function getDeviceSeed() {
-    // Empreinte légère et stable de l'appareil/navigateur (pas d'API externe)
-    const seedParts = [
-        navigator.userAgent,
-        navigator.language,
-        screen.colorDepth,
-        screen.width + 'x' + screen.height,
-        Intl.DateTimeFormat().resolvedOptions().timeZone
-    ];
-    return seedParts.join('|');
-}
-
-async function deriveCryptoKey() {
-    const enc = new TextEncoder();
-    const material = await crypto.subtle.importKey(
-        'raw',
-        enc.encode(PEPPER + '::' + getDeviceSeed()),
-        'PBKDF2',
-        false,
-        ['deriveKey']
-    );
-    return crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: enc.encode('securevault-static-salt-v1'),
-            iterations: 150000,
-            hash: 'SHA-256'
-        },
-        material,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt', 'decrypt']
-    );
-}
-
-async function encryptAndStorePassword(plainPassword) {
-    try {
-        const key = await deriveCryptoKey();
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const enc = new TextEncoder();
-        const ciphertext = await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv },
-            key,
-            enc.encode(plainPassword)
-        );
-        const payload = {
-            iv: Array.from(iv),
-            data: Array.from(new Uint8Array(ciphertext)),
-            v: 1
-        };
-        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-    } catch (e) {
-        console.error('Échec du chiffrement du cache local', e);
-    }
-}
-
-async function loadCachedPassword() {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    try {
-        const payload = JSON.parse(raw);
-        const key = await deriveCryptoKey();
-        const iv = new Uint8Array(payload.iv);
-        const data = new Uint8Array(payload.data);
-        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-        return new TextDecoder().decode(decrypted);
-    } catch (e) {
-        // Cache corrompu, illisible, ou appareil différent -> on l'ignore
-        console.warn('Impossible de déchiffrer le cache local (attendu si nouvel appareil).');
-        return null;
-    }
-}
-
-function clearCachedPassword() {
-    localStorage.removeItem(CACHE_KEY);
-    DOM.btnLockCache.classList.add('hidden');
-}
-
-DOM.btnLockCache.onclick = () => {
-    clearCachedPassword();
-    DOM.masterPassword.value = '';
-    showToastMessage('Cache local effacé.');
-};
-
-/* ========================================================= */
 
 window.onload = function () {
     gapi.load('client', () => { gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); });
@@ -147,10 +43,6 @@ window.onload = function () {
             }
         },
     });
-
-    if (localStorage.getItem(CACHE_KEY)) {
-        DOM.btnLockCache.classList.remove('hidden');
-    }
 };
 
 DOM.btnLogin.onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -174,281 +66,303 @@ async function downloadKdbxFile() {
         if (!response.ok) throw new Error();
         fileMetadata = await response.arrayBuffer();
         updateStatus("Prêt pour déchiffrement", "bg-cyan-500", "text-cyan-400");
-
-        // Tentative de déverrouillage automatique via le cache chiffré
-        if (!autoUnlockAttempted) {
-            autoUnlockAttempted = true;
-            const cached = await loadCachedPassword();
-            if (cached) {
-                DOM.cacheHint.classList.remove('hidden');
-                DOM.masterPassword.value = cached;
-                setTimeout(() => attemptUnlock(cached, false), 400);
-            }
-        }
+        tryAutoUnlock();
     } catch (e) {
         showError("Impossible d'accéder au conteneur.");
     }
 }
 
-DOM.btnUnlock.onclick = () => attemptUnlock(DOM.masterPassword.value, true);
+// =====================================================================
+// CACHE LOCAL CHIFFRE DU MOT DE PASSE MAITRE
+//
+// Le mot de passe n'est jamais stocké en clair. Il est chiffré en
+// AES-256-GCM avec une clé dérivée (PBKDF2) d'une longue phrase secrète
+// répartie aléatoirement dans plusieurs attributs data-* du HTML.
+//
+// Important à savoir : comme ce code s'exécute entièrement côté client,
+// cette phrase reste techniquement lisible par quelqu'un qui inspecte
+// le code source de la page (vue source / devtools). Ce mécanisme
+// protège donc contre une lecture "brute" du localStorage (un tiers qui
+// aspire juste la valeur stockée sans le code de la page), mais ce
+// n'est pas une protection absolue contre quelqu'un qui a accès complet
+// au site. Ne considère pas ceci comme un coffre-fort inviolable.
+// =====================================================================
 
-DOM.masterPassword.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') attemptUnlock(DOM.masterPassword.value, true);
-});
+function getEmbeddedKeyMaterial() {
+    const parts = [
+        document.querySelector('h1')?.dataset.sid,
+        document.getElementById('status-badge')?.dataset.rid,
+        document.getElementById('toast-container')?.dataset.cid,
+        document.getElementById('step-dashboard')?.dataset.tid,
+        document.getElementById('btn-unlock')?.dataset.nid,
+    ];
+    if (parts.some(p => !p)) {
+        throw new Error('Clé locale introuvable dans le HTML.');
+    }
+    return parts.join('::');
+}
 
-async function attemptUnlock(password, isManual) {
-    if (!password) return;
+function bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+}
+
+function b64ToBuf(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+}
+
+async function deriveKey(passphrase, saltBytes) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: saltBytes, iterations: 250000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function cacheMasterPassword(password) {
+    try {
+        const passphrase = getEmbeddedKeyMaterial();
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const key = await deriveKey(passphrase, salt);
+        const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(password));
+        const payload = { s: bufToB64(salt), i: bufToB64(iv), c: bufToB64(ciphertext) };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    } catch (e) {
+        console.warn('Mise en cache locale impossible :', e);
+    }
+}
+
+async function getCachedMasterPassword() {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    try {
+        const payload = JSON.parse(raw);
+        const passphrase = getEmbeddedKeyMaterial();
+        const salt = new Uint8Array(b64ToBuf(payload.s));
+        const iv = new Uint8Array(b64ToBuf(payload.i));
+        const key = await deriveKey(passphrase, salt);
+        const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, b64ToBuf(payload.c));
+        return new TextDecoder().decode(plainBuf);
+    } catch (e) {
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+    }
+}
+
+function clearCachedMasterPassword() {
+    localStorage.removeItem(CACHE_KEY);
+    DOM.btnForget.classList.add('hidden');
+}
+
+function refreshForgetButtonVisibility() {
+    DOM.btnForget.classList.toggle('hidden', !localStorage.getItem(CACHE_KEY));
+}
+
+DOM.btnForget.onclick = () => clearCachedMasterPassword();
+
+async function tryAutoUnlock() {
+    const cachedPwd = await getCachedMasterPassword();
+    if (cachedPwd) {
+        updateStatus("Déchiffrement automatique...", "bg-yellow-500", "text-yellow-400");
+        const ok = await attemptUnlock(cachedPwd, { silent: true });
+        if (ok) return;
+        updateStatus("Prêt pour déchiffrement", "bg-cyan-500", "text-cyan-400");
+    }
+    refreshForgetButtonVisibility();
+}
+
+// --- DECHIFFREMENT DE LA BASE ---
+async function attemptUnlock(password, { silent = false } = {}) {
     document.getElementById('error-msg').classList.add('hidden');
 
-    const originalText = DOM.btnUnlock.innerText;
-    DOM.btnUnlock.innerHTML = `<svg class="animate-spin h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+    let originalText;
+    if (!silent) {
+        originalText = DOM.btnUnlock.innerText;
+        DOM.btnUnlock.innerHTML = `<svg class="animate-spin h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+    }
 
     try {
-        if (!fileMetadata) throw new Error("Fichier non chargé.");
-
-        const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password), null);
+        if (!silent) await new Promise(r => setTimeout(r, 400));
+        const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
         currentDb = await kdbxweb.Kdbx.load(fileMetadata, credentials);
 
-        // Succès : on stocke le mot de passe chiffré si demandé
-        if (DOM.rememberMe.checked) {
-            await encryptAndStorePassword(password);
-            DOM.btnLockCache.classList.remove('hidden');
-        } else {
-            clearCachedPassword();
-        }
+        updateStatus("AES-256 Actif", "bg-[#10B981] dot-pulse", "text-[#10B981]");
+        DOM.masterPassword.value = '';
 
-        updateStatus("Déverrouillé", "bg-emerald-500 dot-pulse", "text-emerald-400");
+        await cacheMasterPassword(password);
+        refreshForgetButtonVisibility();
+
         transitionView(DOM.stepUnlock, DOM.stepDashboard);
-
         generateSkeletons();
+
         setTimeout(() => {
             DOM.skeletonLoader.classList.add('hidden');
             DOM.passwordsList.classList.remove('hidden');
             DOM.searchContainer.classList.remove('hidden');
             displayEntries();
-        }, 900);
+        }, 1200);
 
+        return true;
     } catch (e) {
-        console.error(e);
-        DOM.cacheHint.classList.add('hidden');
-        if (!isManual) {
-            // Échec silencieux de l'auto-unlock : on efface le cache invalide et on laisse l'utilisateur saisir
-            clearCachedPassword();
-            DOM.masterPassword.value = '';
-        } else {
-            showError("Mot de passe incorrect ou fichier corrompu.");
-            DOM.inputContainer.classList.add('animate-shake');
-            setTimeout(() => DOM.inputContainer.classList.remove('animate-shake'), 400);
+        if (silent) {
+            // Mot de passe en cache invalide (fichier changé, cache corrompu...) : on l'oublie et on redemande.
+            clearCachedMasterPassword();
+            return false;
         }
-    } finally {
         DOM.btnUnlock.innerText = originalText;
+        showError("Clé cryptographique rejetée.");
+        DOM.inputContainer.classList.add('animate-shake');
+        DOM.masterPassword.classList.add('border-red-500', 'focus:ring-red-500');
+        setTimeout(() => {
+            DOM.inputContainer.classList.remove('animate-shake');
+            DOM.masterPassword.classList.remove('border-red-500', 'focus:ring-red-500');
+        }, 400);
+        return false;
     }
 }
 
-// --- KEEPASS PARSING ET DOM ---
+DOM.btnUnlock.onclick = () => attemptUnlock(DOM.masterPassword.value, { silent: false });
+
+// --- UTILITAIRES DE SECURITE HTML ---
 function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
     return String(str)
-        .replace(/&/g, '&')
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/"/g, '"')
-        .replace(/'/g, ''');
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
-function getFieldText(entry, name) {
-    const field = entry.fields.get(name);
-    if (!field) return '';
-    if (typeof field === 'string') return field;
-    if (field.getText) return field.getText();
-    return String(field);
+function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
-function displayEntries() {
-    DOM.passwordsList.innerHTML = '';
-    const entries = currentDb.getDefaultGroup().entries;
+function extractFieldText(value) {
+    if (!value) return '';
+    if (typeof value.getText === 'function') return value.getText();
+    return String(value);
+}
 
-    entries.forEach((entry, index) => {
-        const title = getFieldText(entry, 'Title') || 'Sans titre';
-        const username = getFieldText(entry, 'UserName') || '—';
-        const passwordValue = getFieldText(entry, 'Password');
-        const rawUrl = getFieldText(entry, 'URL');
-        const notes = getFieldText(entry, 'Notes');
+// --- KEEPASS PARSING (recursif : toutes les entrées, y compris sous-dossiers) ---
+function getAllEntries(db) {
+    const entries = [];
+    function walk(group) {
+        if (!group) return;
+        if (group.entries) entries.push(...group.entries);
+        if (group.groups) group.groups.forEach(walk);
+    }
+    walk(db.getDefaultGroup());
+    return entries;
+}
 
-        // --- LOGIQUE DES FAVICONS ---
-        let domain = "";
-        if (rawUrl && rawUrl.includes('.')) {
-            try { domain = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl).hostname; }
-            catch (e) { domain = rawUrl; }
-        } else {
+const KNOWN_FIELDS = new Set(['Title', 'UserName', 'Password', 'URL', 'Notes']);
+
+function parseEntries(db) {
+    const rawEntries = getAllEntries(db);
+    return rawEntries.map((entry, index) => {
+        const fields = entry.fields;
+        const title = extractFieldText(fields.get('Title')) || 'Sans titre';
+        const username = extractFieldText(fields.get('UserName'));
+        const password = extractFieldText(fields.get('Password'));
+        const url = extractFieldText(fields.get('URL'));
+        const notes = extractFieldText(fields.get('Notes'));
+
+        const others = [];
+        fields.forEach((value, key) => {
+            if (!KNOWN_FIELDS.has(key)) {
+                const text = extractFieldText(value);
+                if (text) others.push({ key, value: text });
+            }
+        });
+
+        let domain = '';
+        if (url && url.includes('.')) {
+            try { domain = new URL(url).hostname; } catch (e) { domain = url; }
+        } else if (title) {
             domain = title.toLowerCase().replace(/\s+/g, '') + '.com';
         }
 
-        const fallbackIcon = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${escapeHtml(title.charAt(0).toUpperCase())}</div>`;
-        let iconHtml = fallbackIcon;
-        if (domain && domain !== ".com") {
-            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" onerror="this.outerHTML='${fallbackIcon.replace(/'/g, "\\'")}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
+        return { index, title, username, password, url, notes, others, domain };
+    });
+}
+
+function displayEntries() {
+    entriesData = parseEntries(currentDb);
+    DOM.passwordsList.innerHTML = '';
+
+    entriesData.forEach((e) => {
+        const initial = (e.title || '?').charAt(0).toUpperCase();
+        let iconHtml = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${escapeHtml(initial)}</div>`;
+        if (e.domain) {
+            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64" onerror="this.outerHTML='${iconHtml.replace(/'/g, "\\'")}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
         }
 
-        const id = `pwd-${index}`;
-        const safePwd = escapeHtml(passwordValue).replace(/'/g, "\\'");
+        const displayUsername = e.username || '—';
+        const id = `pwd-${e.index}`;
 
         const card = document.createElement('div');
         card.className = "spotlight-card rounded-2xl p-5 flex flex-col gap-5 group";
-        card.dataset.entryIndex = index;
 
-        card.addEventListener('mousemove', (e) => {
+        card.addEventListener('mousemove', (ev) => {
             const rect = card.getBoundingClientRect();
-            card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-            card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+            card.style.setProperty('--mouse-x', `${ev.clientX - rect.left}px`);
+            card.style.setProperty('--mouse-y', `${ev.clientY - rect.top}px`);
         });
 
         card.innerHTML = `
-            <div class="flex items-center gap-3">
+            <div class="flex items-start gap-4 border-b border-white/5 pb-4">
                 ${iconHtml}
-                <div class="flex-1 min-w-0">
-                    <h3 class="font-semibold text-white truncate">${escapeHtml(title)}</h3>
-                    <p class="text-xs text-gray-500 font-mono truncate">${escapeHtml(username)}</p>
+                <div class="overflow-hidden flex-1">
+                    <h3 class="text-sm font-semibold text-gray-100 truncate">${escapeHtml(e.title)}</h3>
+                    <div class="flex items-center gap-2 mt-1">
+                        <p class="text-xs text-gray-500 font-mono truncate max-w-[150px]">${escapeHtml(displayUsername)}</p>
+                        ${e.username ? `
+                        <button type="button" data-copy="username" class="text-gray-600 hover:text-[#10B981] transition-colors p-1 rounded hover:bg-white/5" title="Copier l'identifiant">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        </button>` : ''}
+                    </div>
                 </div>
             </div>
-            <div class="flex items-center gap-2 bg-[#0B0F19] rounded-xl border border-white/5 p-2">
-                <input type="password" value="${safePwd}" class="flex-1 bg-transparent text-sm font-mono text-gray-300 px-2 outline-none pointer-events-none" readonly id="${id}">
+
+            <div class="flex items-center justify-between bg-black/40 rounded-lg p-1.5 border border-white/5 mt-auto">
+                <input type="password" value="${escapeAttr(e.password)}" class="bg-transparent border-none outline-none text-sm text-gray-300 font-mono pl-3 w-full pointer-events-none" readonly id="${id}">
                 <div class="flex gap-1 flex-shrink-0">
-                    <button data-action="reveal" data-id="${id}" data-pwd="${safePwd}" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors" title="Afficher/Masquer">
+                    <button type="button" data-action="reveal" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors" title="Afficher/Masquer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     </button>
-                    <button data-action="copy" data-pwd="${safePwd}" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors" title="Copier le MDP">
+                    <button type="button" data-action="copy-password" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors" title="Copier le mot de passe">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                     </button>
                 </div>
             </div>
         `;
 
-        // Boutons internes : on empêche la propagation vers l'ouverture de la modale
-        card.querySelectorAll('button[data-action]').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const action = btn.dataset.action;
-                if (action === 'reveal') revealMatrix(btn.dataset.id, decodeHtml(btn.dataset.pwd), btn);
-                if (action === 'copy') copyAnim(decodeHtml(btn.dataset.pwd), btn);
-            });
-        });
+        const usernameCopyBtn = card.querySelector('[data-copy="username"]');
+        if (usernameCopyBtn) usernameCopyBtn.addEventListener('click', (ev) => { ev.stopPropagation(); copyAnim(e.username, usernameCopyBtn); });
 
-        // Ouverture de la modale de détails au clic sur la carte
-        card.addEventListener('click', () => openDetailModal({
-            title, username, password: passwordValue, url: rawUrl, notes,
-            iconHtml, entry
-        }));
+        const revealBtn = card.querySelector('[data-action="reveal"]');
+        revealBtn.addEventListener('click', (ev) => { ev.stopPropagation(); revealMatrix(id, e.password, revealBtn); });
+
+        const passwordCopyBtn = card.querySelector('[data-action="copy-password"]');
+        passwordCopyBtn.addEventListener('click', (ev) => { ev.stopPropagation(); copyAnim(e.password, passwordCopyBtn); });
+
+        card.addEventListener('click', () => openEntryModal(e.index));
 
         DOM.passwordsList.appendChild(card);
     });
 }
 
-function decodeHtml(str) {
-    const txt = document.createElement('textarea');
-    txt.innerHTML = str;
-    return txt.value;
-}
-
-// --- MODALE DE DÉTAILS ---
-function openDetailModal(data) {
-    DOM.detailIcon.innerHTML = data.iconHtml;
-    DOM.detailTitle.textContent = data.title;
-
-    const rows = [];
-
-    rows.push(fieldRow('Identifiant', data.username, true));
-    rows.push(passwordRow(data.password));
-    if (data.url) rows.push(fieldRow('URL', data.url, true, true));
-    if (data.notes) rows.push(fieldRow('Notes / Description', data.notes, false));
-
-    // Champs personnalisés éventuels (hors champs standards KeePass)
-    const standardFields = new Set(['Title', 'UserName', 'Password', 'URL', 'Notes']);
-    if (data.entry && data.entry.fields) {
-        data.entry.fields.forEach((value, key) => {
-            if (!standardFields.has(key)) {
-                const text = (value && value.getText) ? value.getText() : String(value);
-                if (text) rows.push(fieldRow(key, text, false));
-            }
-        });
-    }
-
-    DOM.detailFields.innerHTML = rows.join('');
-
-    // Attacher les actions copier sur les champs de la modale
-    DOM.detailFields.querySelectorAll('[data-copy]').forEach(el => {
-        el.addEventListener('click', () => copyAnim(el.dataset.copy, el));
-    });
-    const revealBtn = DOM.detailFields.querySelector('[data-reveal-pwd]');
-    if (revealBtn) {
-        revealBtn.addEventListener('click', () => {
-            const input = document.getElementById('modal-pwd-field');
-            revealMatrix('modal-pwd-field', data.password, revealBtn);
-        });
-    }
-
-    DOM.detailModal.classList.remove('hidden');
-    void DOM.detailPanel.offsetWidth;
-    DOM.detailPanel.classList.remove('view-enter-start');
-    DOM.detailPanel.classList.add('view-enter-end');
-}
-
-function fieldRow(label, value, copyable, isLink) {
-    const safeValue = escapeHtml(value);
-    const display = isLink
-        ? `<a href="${safeValue.startsWith('http') ? safeValue : 'https://' + safeValue}" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:underline break-all">${safeValue}</a>`
-        : `<span class="text-gray-300 break-all whitespace-pre-wrap">${safeValue}</span>`;
-
-    const copyBtn = copyable
-        ? `<button data-copy="${escapeHtml(value).replace(/"/g, '"')}" class="text-gray-500 hover:text-[#10B981] p-1.5 rounded transition-colors flex-shrink-0" title="Copier">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-           </button>`
-        : '';
-
-    return `
-        <div class="space-y-1">
-            <span class="text-xs uppercase tracking-widest text-gray-500">${escapeHtml(label)}</span>
-            <div class="flex items-start justify-between gap-2 bg-[#0B0F19] border border-white/5 rounded-lg px-3 py-2">
-                ${display}
-                ${copyBtn}
-            </div>
-        </div>
-    `;
-}
-
-function passwordRow(password) {
-    const safePwd = escapeHtml(password).replace(/"/g, '"');
-    return `
-        <div class="space-y-1">
-            <span class="text-xs uppercase tracking-widest text-gray-500">Mot de passe</span>
-            <div class="flex items-center justify-between gap-2 bg-[#0B0F19] border border-white/5 rounded-lg px-3 py-2">
-                <input type="password" id="modal-pwd-field" value="${safePwd}" readonly class="flex-1 bg-transparent text-gray-300 outline-none pointer-events-none font-mono">
-                <div class="flex gap-1 flex-shrink-0">
-                    <button data-reveal-pwd class="text-gray-500 hover:text-cyan-400 p-1.5 rounded transition-colors" title="Afficher/Masquer">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                    </button>
-                    <button data-copy="${safePwd}" class="text-gray-500 hover:text-[#10B981] p-1.5 rounded transition-colors" title="Copier">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function closeDetailModal() {
-    DOM.detailPanel.classList.remove('view-enter-end');
-    DOM.detailPanel.classList.add('view-enter-start');
-    setTimeout(() => DOM.detailModal.classList.add('hidden'), 200);
-}
-
-DOM.detailClose.onclick = closeDetailModal;
-DOM.detailBackdrop.onclick = closeDetailModal;
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !DOM.detailModal.classList.contains('hidden')) closeDetailModal();
-});
-
 // --- EFFET MATRIX ---
-window.revealMatrix = (inputId, realText, btn) => {
+function revealMatrix(inputId, realText, btn) {
     const input = document.getElementById(inputId);
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*";
 
@@ -457,7 +371,218 @@ window.revealMatrix = (inputId, realText, btn) => {
         btn.classList.add("text-cyan-400");
 
         let iterations = 0;
-        input.value = realText.split('').map(() => chars[Math.floor(Math.random() * chars.length)]).join('');
-
         const interval = setInterval(() => {
             input.value = realText.split("").map((letter, index) => {
+                if (index < iterations) return realText[index];
+                return chars[Math.floor(Math.random() * chars.length)];
+            }).join("");
+
+            if (iterations >= realText.length) clearInterval(interval);
+            iterations += 1 / 2;
+        }, 30);
+    } else {
+        input.type = "password";
+        input.value = realText;
+        btn.classList.remove("text-cyan-400");
+    }
+}
+
+// --- ANIMATION COPIE & TOAST ---
+function copyAnim(text, btnElement) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const svgIcon = btnElement.querySelector('svg');
+        const originalHTML = svgIcon.innerHTML;
+
+        svgIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" class="text-[#10B981]" d="M5 13l4 4L19 7"/>`;
+        DOM.toast.classList.remove('opacity-0', '-translate-y-10');
+
+        setTimeout(() => { DOM.toast.classList.add('opacity-0', '-translate-y-10'); }, 2500);
+        setTimeout(() => { navigator.clipboard.writeText(""); }, 15000);
+        setTimeout(() => { svgIcon.innerHTML = originalHTML; }, 2000);
+    });
+}
+
+// --- MODALE DE DETAIL D'ENTREE ---
+function openEntryModal(idx) {
+    const e = entriesData.find(x => x.index === idx);
+    if (!e) return;
+
+    DOM.entryModalHeader.innerHTML = '';
+    DOM.entryModalFields.innerHTML = '';
+
+    const initial = (e.title || '?').charAt(0).toUpperCase();
+    const fallbackIcon = () => {
+        const div = document.createElement('div');
+        div.className = 'w-12 h-12 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-300 font-mono text-base flex-shrink-0';
+        div.textContent = initial;
+        return div;
+    };
+
+    if (e.domain) {
+        const img = document.createElement('img');
+        img.src = `https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(e.domain)}&sz=64`;
+        img.className = 'w-12 h-12 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0';
+        img.onerror = () => img.replaceWith(fallbackIcon());
+        DOM.entryModalHeader.appendChild(img);
+    } else {
+        DOM.entryModalHeader.appendChild(fallbackIcon());
+    }
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'text-lg font-semibold text-white truncate';
+    titleEl.textContent = e.title;
+    DOM.entryModalHeader.appendChild(titleEl);
+
+    const rows = [];
+    if (e.username) rows.push({ label: 'Identifiant', value: e.username, copy: true });
+    if (e.password) rows.push({ label: 'Mot de passe', value: e.password, copy: true, secret: true });
+    if (e.url) rows.push({ label: 'URL', value: e.url, link: true, copy: true });
+    if (e.notes) rows.push({ label: 'Notes / Commentaire', value: e.notes, copy: true });
+    e.others.forEach(o => rows.push({ label: o.key, value: o.value, copy: true }));
+
+    if (rows.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm text-gray-500 font-mono';
+        empty.textContent = 'Aucune information supplémentaire pour cette entrée.';
+        DOM.entryModalFields.appendChild(empty);
+    }
+
+    rows.forEach(r => {
+        const row = document.createElement('div');
+        row.className = 'detail-row flex items-start justify-between gap-3';
+
+        const left = document.createElement('div');
+        left.className = 'flex-1 min-w-0';
+
+        const label = document.createElement('div');
+        label.className = 'detail-label';
+        label.textContent = r.label;
+        left.appendChild(label);
+
+        const valueEl = document.createElement('div');
+        valueEl.className = 'detail-value';
+
+        let revealed = !r.secret;
+        const renderValue = () => {
+            valueEl.innerHTML = '';
+            if (r.secret && !revealed) {
+                valueEl.textContent = '•'.repeat(Math.min(Math.max(r.value.length, 8), 24));
+            } else if (r.link) {
+                const a = document.createElement('a');
+                a.href = r.value;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.className = 'text-cyan-400 hover:underline break-all';
+                a.textContent = r.value;
+                valueEl.appendChild(a);
+            } else {
+                valueEl.textContent = r.value;
+            }
+        };
+        renderValue();
+        left.appendChild(valueEl);
+        row.appendChild(left);
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'flex gap-1 flex-shrink-0 pt-1';
+
+        if (r.secret) {
+            const revealBtn = document.createElement('button');
+            revealBtn.type = 'button';
+            revealBtn.className = 'text-gray-500 hover:text-cyan-400 p-1.5 rounded transition-colors';
+            revealBtn.title = 'Afficher/Masquer';
+            revealBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
+            revealBtn.addEventListener('click', () => {
+                revealed = !revealed;
+                revealBtn.classList.toggle('text-cyan-400', revealed);
+                renderValue();
+            });
+            btnGroup.appendChild(revealBtn);
+        }
+
+        if (r.copy) {
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'text-gray-500 hover:text-[#10B981] p-1.5 rounded transition-colors';
+            copyBtn.title = 'Copier';
+            copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`;
+            copyBtn.addEventListener('click', () => copyAnim(r.value, copyBtn));
+            btnGroup.appendChild(copyBtn);
+        }
+
+        row.appendChild(btnGroup);
+        DOM.entryModalFields.appendChild(row);
+    });
+
+    DOM.entryModal.classList.remove('hidden');
+}
+
+function closeEntryModal() {
+    DOM.entryModal.classList.add('hidden');
+}
+
+DOM.entryModalClose.addEventListener('click', closeEntryModal);
+DOM.entryModal.addEventListener('click', (e) => {
+    if (e.target === DOM.entryModal) closeEntryModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !DOM.entryModal.classList.contains('hidden')) closeEntryModal();
+});
+
+// --- BARRE DE RECHERCHE ---
+document.getElementById('search-input').addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const cards = document.querySelectorAll('.spotlight-card');
+
+    cards.forEach(card => {
+        const textContent = card.innerText.toLowerCase();
+        card.style.display = textContent.includes(term) ? 'flex' : 'none';
+    });
+});
+
+// --- UTILITAIRES ---
+function transitionView(outView, inView) {
+    outView.classList.add('view-exit');
+    setTimeout(() => {
+        outView.classList.add('hidden');
+        outView.classList.remove('view-exit');
+        inView.classList.remove('hidden');
+        inView.classList.add('view-enter-start');
+
+        void inView.offsetWidth;
+
+        inView.classList.remove('view-enter-start');
+        inView.classList.add('view-enter-end');
+    }, 400);
+}
+
+function generateSkeletons() {
+    DOM.skeletonLoader.classList.remove('hidden');
+    DOM.passwordsList.classList.add('hidden');
+    DOM.skeletonLoader.innerHTML = '';
+    for (let i = 0; i < 6; i++) {
+        DOM.skeletonLoader.innerHTML += `
+            <div class="rounded-2xl p-5 border border-white/5 bg-gray-900/40">
+                <div class="animate-pulse flex space-x-4">
+                    <div class="rounded bg-gray-800 h-10 w-10"></div>
+                    <div class="flex-1 space-y-2 py-1">
+                        <div class="h-4 bg-gray-800 rounded w-3/4"></div>
+                        <div class="h-3 bg-gray-800 rounded w-1/2"></div>
+                    </div>
+                </div>
+                <div class="animate-pulse mt-5 h-10 bg-gray-800 rounded-lg"></div>
+            </div>`;
+    }
+}
+
+function updateStatus(text, dotClass, textClass) {
+    DOM.statusText.textContent = text;
+    DOM.statusText.className = `text-xs font-mono tracking-widest uppercase transition-colors ${textClass}`;
+    DOM.statusDot.className = `w-2 h-2 rounded-full transition-all ${dotClass}`;
+}
+
+function showError(msg) {
+    document.getElementById('error-text').textContent = msg;
+    document.getElementById('error-msg').classList.remove('hidden');
+}
