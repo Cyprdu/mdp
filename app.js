@@ -18,7 +18,8 @@ const DOM = {
     inputContainer: document.getElementById('input-container'),
     toast: document.getElementById('toast-container'),
     statusText: document.getElementById('status-text'),
-    statusDot: document.getElementById('status-dot')
+    statusDot: document.getElementById('status-dot'),
+    searchContainer: document.getElementById('search-container')
 };
 
 window.onload = function () {
@@ -45,7 +46,6 @@ DOM.masterPassword.addEventListener('input', (e) => {
         DOM.lockShackle.setAttribute('d', 'M8 11V7a4 4 0 118 0v4m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z');
         DOM.lockIcon.classList.replace('text-gray-500', 'text-[#10B981]');
     } else {
-        // Cadenas ouvert
         DOM.lockShackle.setAttribute('d', 'M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z');
         DOM.lockIcon.classList.replace('text-[#10B981]', 'text-gray-500');
     }
@@ -68,12 +68,11 @@ DOM.btnUnlock.onclick = async () => {
     const password = DOM.masterPassword.value;
     document.getElementById('error-msg').classList.add('hidden');
     
-    // Spinner
     const originalText = DOM.btnUnlock.innerText;
     DOM.btnUnlock.innerHTML = `<svg class="animate-spin h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
 
     try {
-        await new Promise(r => setTimeout(r, 400)); // Simuler le temps de calcul
+        await new Promise(r => setTimeout(r, 400)); 
         const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
         currentDb = await kdbxweb.Kdbx.load(fileMetadata, credentials);
         
@@ -86,13 +85,13 @@ DOM.btnUnlock.onclick = async () => {
         setTimeout(() => {
             DOM.skeletonLoader.classList.add('hidden');
             DOM.passwordsList.classList.remove('hidden');
+            DOM.searchContainer.classList.remove('hidden');
             displayEntries();
-        }, 1200); // Durée élégante du skeleton
+        }, 1200); 
 
     } catch (e) {
         DOM.btnUnlock.innerText = originalText;
         showError("Clé cryptographique rejetée.");
-        // Animation shake et flash rouge
         DOM.inputContainer.classList.add('animate-shake');
         DOM.masterPassword.classList.add('border-red-500', 'focus:ring-red-500');
         setTimeout(() => {
@@ -113,22 +112,26 @@ function displayEntries() {
         const passwordValue = entry.fields.get('Password') ? entry.fields.get('Password').getText() : '';
         const rawUrl = entry.fields.get('URL') ? entry.fields.get('URL') : '';
         
-        // Tentative de récupération du Favicon via Clearbit
-        let iconHtml = `<div class="w-10 h-10 rounded bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-xs">${title.charAt(0).toUpperCase()}</div>`;
-        try {
-            if(rawUrl) {
-                const domain = new URL(rawUrl).hostname;
-                iconHtml = `<img src="https://logo.clearbit.com/${domain}?size=80" onerror="this.outerHTML='${iconHtml}'" class="w-10 h-10 rounded object-contain bg-white/5 p-1 border border-white/5">`;
-            }
-        } catch(e) {}
+        // --- LOGIQUE DES FAVICONS ---
+        let domain = "";
+        if(rawUrl && rawUrl.includes('.')) {
+            try { domain = new URL(rawUrl).hostname; } catch(e) { domain = rawUrl; }
+        } else {
+            domain = title.toLowerCase().replace(/\s+/g, '') + '.com';
+        }
+        
+        let iconHtml = `<div class="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center border border-gray-700 text-gray-400 font-mono text-sm shadow-inner flex-shrink-0">${title.charAt(0).toUpperCase()}</div>`;
+        if (domain !== ".com") {
+            iconHtml = `<img src="https://s2.googleusercontent.com/s2/favicons?domain=${domain}&sz=64" onerror="this.outerHTML='${iconHtml}'" class="w-10 h-10 rounded-lg object-contain bg-white/5 p-1.5 border border-white/5 flex-shrink-0 shadow-sm">`;
+        }
 
         const id = `pwd-${index}`;
         const safePwd = passwordValue.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+        const safeUsername = username.replace(/"/g, '&quot;').replace(/'/g, "\\'");
 
         const card = document.createElement('div');
         card.className = "spotlight-card rounded-2xl p-5 flex flex-col gap-5 group";
         
-        // Attacher le mousemove pour l'effet Spotlight
         card.addEventListener('mousemove', (e) => {
             const rect = card.getBoundingClientRect();
             card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
@@ -136,22 +139,29 @@ function displayEntries() {
         });
 
         card.innerHTML = `
-            <div class="flex items-center gap-4">
+            <div class="flex items-start gap-4 border-b border-white/5 pb-4">
                 ${iconHtml}
-                <div class="overflow-hidden">
+                <div class="overflow-hidden flex-1">
                     <h3 class="text-sm font-semibold text-gray-100 truncate">${title}</h3>
-                    <p class="text-xs text-gray-500 font-mono mt-0.5 truncate">${username}</p>
+                    
+                    <div class="flex items-center gap-2 mt-1">
+                        <p class="text-xs text-gray-500 font-mono truncate max-w-[150px]">${username}</p>
+                        ${username !== '—' ? `
+                        <button onclick="copyAnim('${safeUsername}', this)" class="text-gray-600 hover:text-[#10B981] transition-colors p-1 rounded hover:bg-white/5" title="Copier l'identifiant">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        </button>` : ''}
+                    </div>
                 </div>
             </div>
             
-            <div class="flex items-center justify-between bg-black/40 rounded-lg p-1.5 border border-white/5">
+            <div class="flex items-center justify-between bg-black/40 rounded-lg p-1.5 border border-white/5 mt-auto">
                 <input type="password" value="${safePwd}" class="bg-transparent border-none outline-none text-sm text-gray-300 font-mono pl-3 w-full pointer-events-none" readonly id="${id}">
                 
-                <div class="flex gap-1">
-                    <button onclick="revealMatrix('${id}', '${safePwd}', this)" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors">
+                <div class="flex gap-1 flex-shrink-0">
+                    <button onclick="revealMatrix('${id}', '${safePwd}', this)" class="text-gray-500 hover:text-cyan-400 p-2 rounded transition-colors" title="Afficher/Masquer">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     </button>
-                    <button onclick="copyAnim('${safePwd}', this)" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors">
+                    <button onclick="copyAnim('${safePwd}', this)" class="text-gray-500 hover:text-[#10B981] p-2 rounded transition-colors" title="Copier le MDP">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                     </button>
                 </div>
@@ -178,7 +188,7 @@ window.revealMatrix = (inputId, realText, btn) => {
             }).join("");
             
             if(iterations >= realText.length) clearInterval(interval);
-            iterations += 1/2; // Vitesse de décryptage
+            iterations += 1/2; 
         }, 30);
     } else {
         input.type = "password";
@@ -193,7 +203,6 @@ window.copyAnim = (text, btnElement) => {
         const svgIcon = btnElement.querySelector('svg');
         const originalHTML = svgIcon.innerHTML;
         
-        // Morphing vers la coche
         svgIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" class="text-[#10B981]" d="M5 13l4 4L19 7"/>`;
         DOM.toast.classList.remove('opacity-0', '-translate-y-10');
         
@@ -203,6 +212,21 @@ window.copyAnim = (text, btnElement) => {
     });
 };
 
+// --- BARRE DE RECHERCHE ---
+document.getElementById('search-input').addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const cards = document.querySelectorAll('.spotlight-card');
+    
+    cards.forEach(card => {
+        const textContent = card.innerText.toLowerCase();
+        if(textContent.includes(term)) {
+            card.style.display = 'flex';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+});
+
 // --- UTILITAIRES ---
 function transitionView(outView, inView) {
     outView.classList.add('view-exit');
@@ -211,12 +235,11 @@ function transitionView(outView, inView) {
         inView.classList.remove('hidden');
         inView.classList.add('view-enter-start');
         
-        // Force reflow
         void inView.offsetWidth; 
         
         inView.classList.remove('view-enter-start');
         inView.classList.add('view-enter-end');
-    }, 400); // 400ms pour laisser le fade-out se faire
+    }, 400); 
 }
 
 function generateSkeletons() {
