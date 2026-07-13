@@ -1,0 +1,103 @@
+/* style.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #0B0F19;
+}
+
+.font-mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Arrière-plan Tech : Maillage très discret */
+.bg-tech-grid {
+    background-size: 40px 40px;
+    background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+/* Physique des animations (Ressort / Spring) */
+.spring-transition {
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Effet Spotlight piloté par le JavaScript */
+.spotlight-card {
+    position: relative;
+    overflow: hidden;
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+}
+
+.spotlight-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.08), transparent 40%);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.spotlight-card:hover::before { opacity: 1; }
+.spotlight-card > * { position: relative; z-index: 1; }
+
+/* Séquence de Déverrouillage (Cinématique) */
+.view-transition {
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s ease;
+}
+.view-exit {
+    transform: scale(0.95);
+    opacity: 0;
+    pointer-events: none;
+}
+.view-enter-start {
+    transform: scale(1.05);
+    opacity: 0;
+}
+.view-enter-end {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Tremblement pour l'erreur */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+}
+.animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+
+/* Pulsation du point vert de sécurité */
+@keyframes pulse-green {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.dot-pulse {
+    animation: pulse-green 2s infinite;
+}
+
+/* Toast de notification */
+#toast-container {
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
+}
+
+/* Modale */
+#detail-modal {
+    animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+#detail-panel::-webkit-scrollbar {
+    width: 6px;
+}
+#detail-panel::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.3);
+    border-radius: 3px;
+}
