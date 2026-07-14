@@ -30,22 +30,42 @@ const DOM = {
 };
 
 window.onload = function () {
-    gapi.load('client', () => { gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); });
+    gapi.load('client', () => { 
+        gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); 
+    });
+
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: (tokenResponse) => {
             if (tokenResponse && tokenResponse.access_token) {
                 accessToken = tokenResponse.access_token;
+                
+                // On sauvegarde le token et on calcule son heure d'expiration (en millisecondes)
+                localStorage.setItem('gdrive_token', accessToken);
+                localStorage.setItem('gdrive_token_expiry', Date.now() + (tokenResponse.expires_in * 1000));
+
                 updateStatus("Recherche du fichier...", "bg-yellow-500", "text-yellow-400");
                 transitionView(DOM.stepAuth, DOM.stepUnlock);
                 downloadKdbxFile();
             }
         },
     });
+
+    // --- VÉRIFICATION DU CACHE AU CHARGEMENT ---
+    const cachedToken = localStorage.getItem('gdrive_token');
+    const tokenExpiry = localStorage.getItem('gdrive_token_expiry');
+
+    // Si on a un token et qu'il n'est pas encore expiré
+    if (cachedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
+        accessToken = cachedToken;
+        updateStatus("Connexion restaurée...", "bg-yellow-500", "text-yellow-400");
+        transitionView(DOM.stepAuth, DOM.stepUnlock);
+        downloadKdbxFile();
+    }
 };
 
-DOM.btnLogin.onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' });
+DOM.btnLogin.onclick = () => tokenClient.requestAccessToken();
 
 // --- ANIMATION CADENAS ---
 DOM.masterPassword.addEventListener('input', (e) => {
@@ -63,12 +83,21 @@ async function downloadKdbxFile() {
         const response = await fetch(`https://www.googleapis.com/drive/v3/files/${FILE_ID}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
+        
         if (!response.ok) throw new Error();
+        
         fileMetadata = await response.arrayBuffer();
         updateStatus("Prêt pour déchiffrement", "bg-cyan-500", "text-cyan-400");
         tryAutoUnlock();
+        
     } catch (e) {
-        showError("Impossible d'accéder au conteneur.");
+        // En cas d'erreur (ex: token expiré ou révoqué), on purge le cache
+        localStorage.removeItem('gdrive_token');
+        localStorage.removeItem('gdrive_token_expiry');
+        
+        // On repasse sur l'écran d'accueil
+        transitionView(DOM.stepUnlock, DOM.stepAuth);
+        showError("Session expirée. Veuillez vous reconnecter.");
     }
 }
 
